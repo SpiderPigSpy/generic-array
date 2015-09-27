@@ -1,3 +1,7 @@
+extern crate rustc_serialize;
+
+use rustc_serialize::{Decoder, Decodable};
+
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
@@ -8,7 +12,7 @@ pub struct _0;
 #[derive(Debug, Copy, Clone)]
 pub struct _1;
 
-/// Nonnegative type-level integer, e.g., `((_1,_0),_1) = 0b101 = 25`.
+/// Nonnegative type-level integer, e.g., `((_1,_0),_1) = 0b101 = 5`.
 pub trait Nat {
     fn reify() -> u64;
 }
@@ -59,6 +63,7 @@ unsafe impl<T, N: ArrayLength<T>> ArrayLength<T> for (N, _1) {
 }
 
 #[allow(dead_code)]
+#[derive(RustcEncodable)]
 pub struct GenericArray<T, U: ArrayLength<T>> {
 	data: U::ArrayType
 }
@@ -81,21 +86,33 @@ impl<T, N> DerefMut for GenericArray<T, N> where N: ArrayLength<T> {
     }
 }
 
-impl<T: Clone, N> GenericArray<T, N> where N: ArrayLength<T> {
+impl<T, N> GenericArray<T, N> where N: ArrayLength<T> {
 
-	pub fn new() -> GenericArray<T, N> {
-		unsafe { mem::zeroed() }
+	pub unsafe fn new() -> GenericArray<T, N> {
+		mem::zeroed()
 	}
+	
+	pub fn fill<F>(f: F) -> GenericArray<T, N> where F: Fn(usize) -> T {
+        let mut res: GenericArray<T, N> = unsafe { mem::zeroed() };
+        for i in 0..N::reify() as usize {
+            let uninit = mem::replace(&mut res[i], f(i));
+            mem::forget(uninit);
+        }
+        res
+    }
 
-	pub fn new_list(list: &[T]) -> GenericArray<T, N> {
-		assert_eq!(list.len(), N::reify() as usize);
-		let mut res = GenericArray::new();
-		for i in 0..N::reify() as usize {
-			res[i] = list[i].clone();
-		}
-		res
-	}
+}
 
+impl<T, N> Decodable for GenericArray<T, N> where N: ArrayLength<T>, T: Decodable {
+    fn decode<D: Decoder>(d: &mut D) -> Result<Self, D::Error> {
+        let mut res: GenericArray<T, N> = unsafe { mem::zeroed() };
+        for i in 0..N::reify() as usize {
+            let item = try!( T::decode(d) );
+            let uninit = mem::replace(&mut res[i], item);
+            mem::forget(uninit);
+        }
+        Ok(res)
+    }
 }
 
 #[cfg(test)]
